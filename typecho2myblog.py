@@ -9,6 +9,7 @@ from openai import OpenAI
 
 client = OpenAI(api_key="sk", base_url="https://api.deepseek.com")
 
+# 将中文标题翻译为英文缩略
 def translate_title_to_english(chinese_title):
     prompt = f"""
 你是一个专业的翻译助手，擅长将中文标题转换为简洁且合适的英文缩略。请根据下面的中文标题，提供一个准确且简明的英文缩略形式。请确保缩略语保留标题的核心含义，并适合用作文件名或标签。
@@ -32,8 +33,8 @@ def translate_title_to_english(chinese_title):
     return response.choices[0].message.content.strip()
 
 
-
-def download_image(url, path):
+# 下载图片
+def download_image(url, path, title):
     try:
         response = requests.get(url)
         response.raise_for_status()
@@ -41,22 +42,59 @@ def download_image(url, path):
         with open(filename, 'wb') as f:
             f.write(response.content)
     except requests.RequestException as e:
-        print(f"Failed to download {url}: {e}")
+        print(f"IN {title}, Failed to download {url}: {e}")
 
 
-def replace_reference_links(content):
-    # 查找所有引用链接
-    ref_links = re.findall(r'\[(\d+)\]:\s*(\S+)', content)
-    ref_dict = {ref[0]: ref[1] for ref in ref_links}
+# 替换 Markdown 中的图片引用
+def replace_markdown_images(text):
+    # 查找所有的图片引用
+    ref_pattern = re.compile(r'!\[.*?\]\[(\d+)\]')
+    url_pattern = re.compile(r'\[(\d+)\]:\s*(\S+)')
+
+    # 创建一个字典来存储编号和 URL 的映射
+    url_dict = {}
+    for match in url_pattern.finditer(text):
+        number = match.group(1)
+        url = match.group(2)
+        # 移除 URL 中的参数部分
+        clean_url = re.sub(r'#.*$', '', url)
+        url_dict[number] = clean_url
+
+    # 替换旧的语法为新的语法
+    def replacer(match):
+        ref_number = match.group(1)
+        url = url_dict.get(ref_number, '')
+        return f'![Image]({url})'
+
+    # 替换图片引用
+    new_text = ref_pattern.sub(replacer, text)
+
+    # 移除 URL 映射部分
+    new_text = url_pattern.sub('', new_text)
+
+    return new_text.strip()
+
+# 从 URL 中提取文件名
+def extract_filename_from_url(url):
+    # 移除 URL 中的参数部分
+    clean_url = re.sub(r'#.*$', '', url)
+    # 提取文件名
+    file_name = clean_url.split('/')[-1]
+    return file_name
     
-    # 替换引用格式为内联格式
-    for ref_id, url in ref_dict.items():
-        content = re.sub(rf'!\[\]\[{ref_id}\]', f'![]({url})', content)
+# 将 URL 替换为文件名
+def replace_urls_with_filenames(text):
+    # 匹配 Markdown 图片语法的正则表达式
+    pattern = re.compile(r'(!\[.*?\]\()(\S+)(\))')
     
-    # 去掉引用链接部分
-    content = re.sub(r'\n\[\d+\]:\s*\S+', '', content)
-    
-    return content
+    # 替换 URL 为文件名
+    def replacer(match):
+        url = match.group(2)
+        file_name = extract_filename_from_url(url)
+        return f'{match.group(1)}{file_name}{match.group(3)}'
+
+    new_text = pattern.sub(replacer, text)
+    return new_text
 
 
 def create_data(db):
@@ -68,7 +106,7 @@ def create_data(db):
             title = translate_title_to_english(e['title'])
             content = e['text'] or ''  # 如果 text 是 None，则使用空字符串
             content = content.replace('<!--markdown-->', '')
-            content = replace_reference_links(content)
+            content = replace_markdown_images(content)
             tags = []
             # category = ""
             cursor.execute(
@@ -87,8 +125,8 @@ def create_data(db):
 
             image_urls = re.findall(r'!\[.*?\]\((.*?)\)', content)
             for url in image_urls:
-                download_image(url, path)
-                
+                download_image(url, path, title)
+            content =replace_urls_with_filenames(content)    
             with open(f'{path}/README.md', 'w', encoding='utf-8') as f:
                 f.write(f"title: {title}\n")
                 f.write(f"date: {datetime.fromtimestamp(e['created']).strftime('%Y-%m-%d %H:%M:%S')}\n")
