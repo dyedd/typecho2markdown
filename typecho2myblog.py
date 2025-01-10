@@ -103,7 +103,7 @@ def create_data(db):
         cursor.execute("SELECT cid, title, slug, text, created FROM typecho_contents WHERE type='post'")
         entries = cursor.fetchall()
         for e in entries:
-            title = translate_title_to_english(e['title'])
+            title = e['title']
             content = e['text'] or ''  # 如果 text 是 None，则使用空字符串
             content = content.replace('<!--markdown-->', '')
             content = replace_markdown_images(content)
@@ -119,7 +119,7 @@ def create_data(db):
                     tags.append(m['name'])
                 # if m['type'] == 'category':
                 #     category = m['slug']
-            path = f'data/{title}'
+            path = f'data/{translate_title_to_english(title)}'
             if not os.path.exists(path):
                 os.makedirs(path)
 
